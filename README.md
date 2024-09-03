@@ -7,7 +7,8 @@ Use `RegisterImplementationSourceOutput` to avoid unnecessary generation attempt
 
 ## Usage
 1. Download the `WinRT.SourceGenerator.dll` from release or clone this repo and build yourself.
-2. Find the Microsoft.Windows.CsWinRT nuget package local cache and find the correct version.
+2. Find the Microsoft.Windows.CsWinRT nuget package local cache and the correct version.
+3. Find `analyzers/dotnet/cs/WinRT.SourceGenerator.dll`
 3. Replace the file and restart Visual Studio.
 
 Now you should see your CPU calm down again.

@@ -1,0 +1,2 @@
+# WinRT.SourceGenerator
+WinRT SourceGenerator implements IIncrementalGenerator

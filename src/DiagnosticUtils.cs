@@ -11,7 +11,7 @@ namespace Generator
 {
     public partial class WinRTComponentScanner
     {
-        public WinRTComponentScanner(GeneratorExecutionContextSlim context, string assemblyName)
+        public WinRTComponentScanner(GeneratorExecutionContext context, string assemblyName)
         {
             _assemblyName = assemblyName;
             _context = context;
@@ -20,7 +20,7 @@ namespace Generator
         }
 
         private readonly string _assemblyName;
-        private readonly GeneratorExecutionContextSlim _context;
+        private readonly GeneratorExecutionContext _context;
         private bool _flag;
         private readonly TypeMapper _typeMapper;
 

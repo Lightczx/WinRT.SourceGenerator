@@ -1,14 +1,12 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using System;
-using System.Collections.Immutable;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Dynamic;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
@@ -22,11 +20,11 @@ namespace Generator
     public class ComponentGenerator
     {
         private Logger Logger { get; }
-        private readonly GeneratorExecutionContextSlim context;
+        private readonly GeneratorExecutionContext context;
         private string tempFolder;
         private readonly TypeMapper mapper;
 
-        public ComponentGenerator(GeneratorExecutionContextSlim context)
+        public ComponentGenerator(GeneratorExecutionContext context)
         {
             this.context = context;
             Logger = new Logger(context);
@@ -167,8 +165,8 @@ namespace Generator
                     Logger,
                     mapper);
 
-                WinRTSyntaxReceiver syntaxReceiver = context.SyntaxReceiver;
-                Logger.Log("Found " + syntaxReceiver.Declarations.Length + " types");
+                WinRTSyntaxReceiver syntaxReceiver = (WinRTSyntaxReceiver)context.SyntaxReceiver;
+                Logger.Log("Found " + syntaxReceiver.Declarations.Count + " types");
                 foreach (var declaration in syntaxReceiver.Declarations)
                 {
                     writer.Model = context.Compilation.GetSemanticModel(declaration.SyntaxTree);
@@ -199,7 +197,7 @@ namespace Generator
             Logger.Close();
         }
 
-        private static bool ShouldEmitCallToTryGetDependentActivationFactory(GeneratorExecutionContextSlim context)
+        private static bool ShouldEmitCallToTryGetDependentActivationFactory(GeneratorExecutionContext context)
         {
             if (!context.AnalyzerConfigOptions.GetCsWinRTMergeReferencedActivationFactories())
             {
@@ -231,7 +229,7 @@ namespace Generator
         /// Generates the native exports for a WinRT component.
         /// </summary>
         /// <param name="context">The <see cref="GeneratorExecutionContext"/> value to use to produce source files.</param>
-        public static void GenerateWinRTNativeExports(GeneratorExecutionContextSlim context)
+        public static void GenerateWinRTNativeExports(GeneratorExecutionContext context)
         {
             StringBuilder builder = new();
 
@@ -344,7 +342,7 @@ namespace Generator
         /// Generates the native exports for a WinRT component.
         /// </summary>
         /// <param name="context">The <see cref="GeneratorExecutionContext"/> value to use to produce source files.</param>
-        public static void GenerateWinRTExportsType(GeneratorExecutionContextSlim context)
+        public static void GenerateWinRTExportsType(GeneratorExecutionContext context)
         {
             if (context.Compilation.AssemblyName is not { Length: > 0 } assemblyName)
             {
@@ -391,29 +389,12 @@ namespace Generator
         }
     }
 
-    [Generator]
-    public class SourceGenerator : IIncrementalGenerator
+    // Just disable it
+    // [Generator]
+    public class SourceGenerator : ISourceGenerator
     {
-        public void Initialize(IncrementalGeneratorInitializationContext context)
+        public void Execute(GeneratorExecutionContext context)
         {
-            IncrementalValueProvider<ImmutableArray<NamespaceDeclarationSyntax>> namespaces =
-                context.SyntaxProvider.CreateSyntaxProvider(VisitSyntaxNodeForNamespaces, TransformNamespace).Collect();
-            IncrementalValueProvider<ImmutableArray<MemberDeclarationSyntax>> declarations =
-                context.SyntaxProvider.CreateSyntaxProvider(VisitSyntaxNodeForDeclarations, TransformDeclaration).Collect();
-            IncrementalValueProvider<(ImmutableArray<NamespaceDeclarationSyntax>, ImmutableArray<MemberDeclarationSyntax>)> syntaxProvider =
-                namespaces.Combine(declarations);
-            IncrementalValueProvider<GeneratorExecutionContextSlim> provider = context.CompilationProvider
-                .Combine(context.AnalyzerConfigOptionsProvider)
-                .Combine(syntaxProvider)
-                .Select(GeneratorExecutionContextSlim.Create);
-
-            context.RegisterImplementationSourceOutput(provider, Execute);
-        }
-
-        private static void Execute(SourceProductionContext production, GeneratorExecutionContextSlim context)
-        {
-            context.SetSourceProductionContext(production);
-
             if (!context.IsCsWinRTComponent() && !context.ShouldGenerateWinMDOnly())
             {
                 // Special case for app/library projects that also want to chain referenced WinRT components.
@@ -425,7 +406,7 @@ namespace Generator
                     return;
                 }
 
-                Debug.WriteLine($"Skipping component {context.GetAssemblyName()}");
+                System.Diagnostics.Debug.WriteLine($"Skipping component {context.GetAssemblyName()}");
                 return;
             }
 
@@ -445,7 +426,23 @@ namespace Generator
             }
         }
 
-        private static bool VisitSyntaxNodeForNamespaces(SyntaxNode syntaxNode, CancellationToken token)
+        public void Initialize(GeneratorInitializationContext context)
+        {
+            context.RegisterForSyntaxNotifications(() => new WinRTSyntaxReceiver());
+        }
+    }
+
+    class WinRTSyntaxReceiver : ISyntaxReceiver
+    {
+        public List<MemberDeclarationSyntax> Declarations = new();
+        public List<NamespaceDeclarationSyntax> Namespaces = new();
+
+        private bool HasSomePublicTypes(SyntaxNode syntaxNode)
+        {
+            return syntaxNode.ChildNodes().OfType<MemberDeclarationSyntax>().Any(IsPublic);
+        }
+
+        public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
         {
             // Store namespaces separately as we only need to look at them for diagnostics
             // If we did store them in declarations, we would get duplicate entries in the WinMD,
@@ -458,121 +455,37 @@ namespace Generator
                 // of the type for the purpose of determining whether to include the namespace.
                 if (HasSomePublicTypes(syntaxNode))
                 {
-                    return true;
+                    Namespaces.Add(@namespace);
                 }
+            
+                // Subsequent checks will fail, small performance boost to return now. 
+                return;
             }
 
-            return false;
-        }
-
-        private static NamespaceDeclarationSyntax TransformNamespace(GeneratorSyntaxContext context, CancellationToken token)
-        {
-            return (NamespaceDeclarationSyntax)context.Node;
-        }
-
-        private static bool VisitSyntaxNodeForDeclarations(SyntaxNode syntaxNode, CancellationToken token)
-        {
             if (syntaxNode is not MemberDeclarationSyntax declaration || !IsPublicOrPartial(declaration))
             {
-                return false;
+                return;
             }
 
-            if (syntaxNode is ClassDeclarationSyntax or
-                InterfaceDeclarationSyntax or
-                EnumDeclarationSyntax or
-                DelegateDeclarationSyntax or
-                StructDeclarationSyntax)
+            if (syntaxNode is ClassDeclarationSyntax ||
+                syntaxNode is InterfaceDeclarationSyntax ||
+                syntaxNode is EnumDeclarationSyntax ||
+                syntaxNode is DelegateDeclarationSyntax ||
+                syntaxNode is StructDeclarationSyntax)
             {
-                return true;
+                Declarations.Add(declaration);
             }
-
-            return false;
         }
 
-        private static MemberDeclarationSyntax TransformDeclaration(GeneratorSyntaxContext context, CancellationToken token)
-        {
-            return (MemberDeclarationSyntax)context.Node;
-        }
-
-        private static bool HasSomePublicTypes(SyntaxNode syntaxNode)
-        {
-            return syntaxNode.ChildNodes().OfType<MemberDeclarationSyntax>().Any(IsPublic);
-        }
-
-        private static bool IsPublic(MemberDeclarationSyntax member)
+        private bool IsPublic(MemberDeclarationSyntax member)
         {
             return member.Modifiers.Any(m => m.IsKind(SyntaxKind.PublicKeyword));
         }
 
-        private static bool IsPublicOrPartial(MemberDeclarationSyntax member)
+        private bool IsPublicOrPartial(MemberDeclarationSyntax member)
         {
             // We detect whether partial types are public using symbol information later.
             return member.Modifiers.Any(m => m.IsKind(SyntaxKind.PublicKeyword) || m.IsKind(SyntaxKind.PartialKeyword));
         }
-    }
-
-    public struct GeneratorExecutionContextSlim
-    {
-        public readonly ImmutableArray<NamespaceDeclarationSyntax> Namespaces;
-        public readonly ImmutableArray<MemberDeclarationSyntax> Declarations;
-        private SourceProductionContext production;
-        private readonly Compilation compilation;
-        private readonly AnalyzerConfigOptionsProvider provider;
-        private readonly WinRTSyntaxReceiver syntaxReceiverFacade;
-
-        public GeneratorExecutionContextSlim(((Compilation, AnalyzerConfigOptionsProvider), (ImmutableArray<NamespaceDeclarationSyntax>, ImmutableArray<MemberDeclarationSyntax>)) data)
-        {
-            ((compilation, provider), (Namespaces, Declarations)) = data;
-            syntaxReceiverFacade = new(this);
-        }
-
-        public static GeneratorExecutionContextSlim Create(((Compilation, AnalyzerConfigOptionsProvider), (ImmutableArray<NamespaceDeclarationSyntax>, ImmutableArray<MemberDeclarationSyntax>)) data, CancellationToken token)
-        {
-            return new(data);
-        }
-
-        public void SetSourceProductionContext(SourceProductionContext context)
-        {
-            production = context;
-        }
-
-        /// <inheritdoc cref="GeneratorExecutionContext.AnalyzerConfigOptions"/>
-        public readonly AnalyzerConfigOptionsProvider AnalyzerConfigOptions { get => provider; }
-
-        public readonly WinRTSyntaxReceiver SyntaxReceiver { get => syntaxReceiverFacade; }
-
-        public readonly Compilation Compilation { get => compilation; }
-
-        /// <inheritdoc cref="GeneratorExecutionContext.AddSource(string, SourceText)"/>
-        public readonly void AddSource(string hintName, SourceText sourceText)
-        {
-            production.AddSource(hintName, sourceText);
-        }
-
-        /// <inheritdoc cref="GeneratorExecutionContext.AddSource(string, string)"/>
-        public readonly void AddSource(string hintName, string source)
-        {
-            production.AddSource(hintName, source);
-        }
-
-        /// <inheritdoc cref="GeneratorExecutionContext.ReportDiagnostic(Diagnostic)"/>
-        public readonly void ReportDiagnostic(Diagnostic diagnostic)
-        {
-            production.ReportDiagnostic(diagnostic);
-        }
-    }
-
-    public class WinRTSyntaxReceiver
-    {
-        private readonly GeneratorExecutionContextSlim context;
-
-        public WinRTSyntaxReceiver(GeneratorExecutionContextSlim context)
-        {
-            this.context = context;
-        }
-
-        public ImmutableArray<MemberDeclarationSyntax> Declarations { get => context.Declarations; }
-
-        public ImmutableArray<NamespaceDeclarationSyntax> Namespaces  { get => context.Namespaces; }
     }
 }

@@ -2665,7 +2665,7 @@ namespace Generator
             }
         }
 
-        public void GenerateWinRTExposedClassAttributes(GeneratorExecutionContextSlim context)
+        public void GenerateWinRTExposedClassAttributes(GeneratorExecutionContext context)
         {
             bool IsWinRTType(ISymbol symbol, TypeMapper mapper)
             {

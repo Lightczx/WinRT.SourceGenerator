@@ -57,33 +57,33 @@ namespace Generator
 
     static class GeneratorExecutionContextHelper
     {
-        public static string GetAssemblyName(this GeneratorExecutionContextSlim context)
+        public static string GetAssemblyName(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.AssemblyName", out var assemblyName);
             return assemblyName;
         }
 
-        public static string GetAssemblyVersion(this GeneratorExecutionContextSlim context)
+        public static string GetAssemblyVersion(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.AssemblyVersion", out var assemblyVersion);
             return assemblyVersion;
         }
 
         [SuppressMessage("MicrosoftCodeAnalysisCorrectness", "RS1035", Justification = "We need to do file IO to invoke the 'cswinrt' tool.")]
-        public static string GetGeneratedFilesDir(this GeneratorExecutionContextSlim context)
+        public static string GetGeneratedFilesDir(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTGeneratedFilesDir", out var generatedFilesDir);
             Directory.CreateDirectory(generatedFilesDir);
             return generatedFilesDir;
         }
 
-        public static string GetCsWinRTExeTFM(this GeneratorExecutionContextSlim context)
+        public static string GetCsWinRTExeTFM(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTExeTFM", out var csWinRTExeTFM);
             return csWinRTExeTFM;
         }
 
-        public static bool IsCsWinRTComponent(this GeneratorExecutionContextSlim context)
+        public static bool IsCsWinRTComponent(this GeneratorExecutionContext context)
         {
             if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTComponent", out var isCsWinRTComponentStr))
             {
@@ -174,7 +174,7 @@ namespace Generator
             return 0;
         }
 
-        public static bool ShouldGenerateWinMDOnly(this GeneratorExecutionContextSlim context)
+        public static bool ShouldGenerateWinMDOnly(this GeneratorExecutionContext context)
         {
             if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTGenerateWinMDOnly", out var CsWinRTGenerateWinMDOnlyStr))
             {
@@ -189,7 +189,7 @@ namespace Generator
         /// </summary>
         /// <param name="context">The input <see cref="GeneratorExecutionContext"/> value to use.</param>
         /// <returns>Whether the <c>"CsWinRTAotExportsEnabled"</c> MSBuild property is defined.</returns>
-        public static bool ShouldGenerateWinRTNativeExports(this GeneratorExecutionContextSlim context)
+        public static bool ShouldGenerateWinRTNativeExports(this GeneratorExecutionContext context)
         {
             if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTAotExportsEnabled", out var isCsWinRTAotExportsEnabledStr))
             {
@@ -199,31 +199,31 @@ namespace Generator
             return false;
         }
 
-        public static string GetCsWinRTExe(this GeneratorExecutionContextSlim context)
+        public static string GetCsWinRTExe(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTExe", out var cswinrtExe);
             return cswinrtExe;
         }
 
-        public static bool GetKeepGeneratedSources(this GeneratorExecutionContextSlim context)
+        public static bool GetKeepGeneratedSources(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTKeepGeneratedSources", out var keepGeneratedSourcesStr);
             return keepGeneratedSourcesStr != null && bool.TryParse(keepGeneratedSourcesStr, out var keepGeneratedSources) && keepGeneratedSources;
         }
 
-        public static string GetCsWinRTWindowsMetadata(this GeneratorExecutionContextSlim context)
+        public static string GetCsWinRTWindowsMetadata(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTWindowsMetadata", out var cswinrtWindowsMetadata);
             return cswinrtWindowsMetadata;
         }
 
-        public static string GetCsWinRTDependentMetadata(this GeneratorExecutionContextSlim context)
+        public static string GetCsWinRTDependentMetadata(this GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTAuthoringInputs", out var winmds);
             return winmds;
         }
 
-        public static string GetWinmdOutputFile(this GeneratorExecutionContextSlim context)
+        public static string GetWinmdOutputFile(this GeneratorExecutionContext context)
         {
             var fileName = context.GetAssemblyName();
             if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTWinMDOutputFile", out var ret))
@@ -233,7 +233,7 @@ namespace Generator
             return Path.Combine(context.GetGeneratedFilesDir(), fileName + ".winmd");
         }
 
-        public static bool GetCsWinRTMergeReferencedActivationFactories(this GeneratorExecutionContextSlim context)
+        public static bool GetCsWinRTMergeReferencedActivationFactories(this GeneratorExecutionContext context)
         {
             if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTMergeReferencedActivationFactories", out var csWinRTMergeReferencedActivationFactories))
             {
@@ -299,6 +299,25 @@ namespace Generator
             return false;
         }
 
+        public static bool AllowUnsafe(Compilation compilation)
+        {
+            return compilation is CSharpCompilation csharpCompilation && csharpCompilation.Options.AllowUnsafe;
+        }
+
+        // Whether the class itself is a WinRT projected class.
+        // This is similar to whether it is a WinRT type, but custom type mappings
+        // are excluded given those are C# implemented classes.
+        public static Func<ISymbol, bool> IsWinRTClass(Compilation compilation)
+        {
+            var winrtRuntimeTypeAttribute = compilation.GetTypeByMetadataName("WinRT.WindowsRuntimeTypeAttribute");
+            return IsWinRTClassHelper;
+
+            bool IsWinRTClassHelper(ISymbol type)
+            {
+                return HasAttributeWithType(type, winrtRuntimeTypeAttribute);
+            }
+        }
+
         public static bool IsWinRTType(ISymbol type, TypeMapper mapper)
         {
             return IsWinRTType(type, null, mapper);
@@ -358,6 +377,22 @@ namespace Generator
             }
 
             return isProjectedType;
+        }
+
+        public static bool IsWinRTTypeOrImplementsWinRTType(ISymbol type, ITypeSymbol winrtRuntimeTypeAttribute, TypeMapper mapper, bool isComponentProject, IAssemblySymbol currentAssembly)
+        {
+            if (IsWinRTType(type, winrtRuntimeTypeAttribute, mapper, isComponentProject, currentAssembly))
+            {
+                return true;
+            }
+
+            if (type is INamedTypeSymbol namedType && 
+                namedType.AllInterfaces.Any(iface => IsWinRTType(iface, winrtRuntimeTypeAttribute, mapper, isComponentProject, currentAssembly)))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         // Assuming a type is a WinRT type, this determines whether it is a WinRT type from custom type mappings.
@@ -1037,6 +1072,38 @@ namespace Generator
             {
                 return isValueType && isBlittable;
             }
+        }
+
+        private static readonly Dictionary<string, string> AsyncMethodToTaskAdapter = new()
+        {
+            // AsAsyncOperation is an extension method, due to that using the format of ReducedFrom.
+            { "System.WindowsRuntimeSystemExtensions.AsAsyncOperation<TResult>(System.Threading.Tasks.Task<TResult>)", "System.Threading.Tasks.TaskToAsyncOperationAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.Run<TResult>(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<TResult>>)", "System.Threading.Tasks.TaskToAsyncOperationAdapter`1"},
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.FromResult<TResult>(TResult)", "System.Threading.Tasks.TaskToAsyncOperationAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.FromException<TResult>(System.Exception)", "System.Threading.Tasks.TaskToAsyncOperationAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.CanceledOperation<TResult>()", "System.Threading.Tasks.TaskToAsyncOperationAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.Run<TResult, TProgress>(System.Func<System.Threading.CancellationToken, System.IProgress<TProgress>, System.Threading.Tasks.Task<TResult>>)", "System.Threading.Tasks.TaskToAsyncOperationWithProgressAdapter`2" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.FromResultWithProgress<TResult, TProgress>(TResult)", "System.Threading.Tasks.TaskToAsyncOperationWithProgressAdapter`2" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.FromExceptionWithProgress<TResult, TProgress>(System.Exception)", "System.Threading.Tasks.TaskToAsyncOperationWithProgressAdapter`2" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.CanceledOperationWithProgress<TResult, TProgress>()", "System.Threading.Tasks.TaskToAsyncOperationWithProgressAdapter`2" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.Run<TProgress>(System.Func<System.Threading.CancellationToken, System.IProgress<TProgress>, System.Threading.Tasks.Task>)", "System.Threading.Tasks.TaskToAsyncActionWithProgressAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.CompletedActionWithProgress<TProgress>()", "System.Threading.Tasks.TaskToAsyncActionWithProgressAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.FromExceptionWithProgress<TProgress>(System.Exception)", "System.Threading.Tasks.TaskToAsyncActionWithProgressAdapter`1" },
+            { "System.Runtime.InteropServices.WindowsRuntime.AsyncInfo.CanceledActionWithProgress<TProgress>()", "System.Threading.Tasks.TaskToAsyncActionWithProgressAdapter`1" }
+        };
+
+        public static string GetTaskAdapterIfAsyncMethod(IMethodSymbol symbol)
+        {
+            var symbolStr = symbol.IsExtensionMethod ? symbol.ReducedFrom?.ToDisplayString() : symbol.OriginalDefinition?.ToDisplayString();
+            if (!string.IsNullOrEmpty(symbolStr))
+            {
+                if (AsyncMethodToTaskAdapter.TryGetValue(symbolStr, out var adapterTypeStr))
+                {
+                    return adapterTypeStr;
+                }
+            }
+
+            return null;
         }
     }
 }

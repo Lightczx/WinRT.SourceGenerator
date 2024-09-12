@@ -7,7 +7,7 @@ namespace Generator
     class Logger
     {
         [SuppressMessage("MicrosoftCodeAnalysisCorrectness", "RS1035", Justification = "We need to do file IO to save the 'cswinrt' log file.")]
-        public Logger(GeneratorExecutionContextSlim context)
+        public Logger(GeneratorExecutionContext context)
         {
             context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.CsWinRTEnableLogging", out var enableLoggingStr);
             if (enableLoggingStr != null && bool.TryParse(enableLoggingStr, out var enableLogging) && enableLogging)
